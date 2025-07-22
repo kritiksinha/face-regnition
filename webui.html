@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition Web UI</title>
+    <style>
+        body {
+            background: linear-gradient(120deg, #2193b0 0%, #6dd5ed 100%);
+            color: #fff;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+        }
+        .main-container {
+            background: rgba(34, 49, 63, 0.97);
+            border-radius: 18px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.25);
+            padding: 36px 48px 32px 48px;
+            margin-top: 48px;
+            display: flex;
+            flex-direction: row;
+            gap: 40px;
+        }
+        .left-panel, .right-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .left-panel {
+            min-width: 340px;
+        }
+        .right-panel {
+            min-width: 320px;
+            background: rgba(44, 62, 80, 0.85);
+            border-radius: 12px;
+            padding: 24px 20px 18px 20px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+        }
+        h1 {
+            margin-bottom: 18px;
+            font-size: 2.1rem;
+            letter-spacing: 1px;
+        }
+        .btn-group {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+        button {
+            background: #1976d2;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 1.08rem;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.13);
+        }
+        button:hover {
+            background: #00bcd4;
+            transform: translateY(-2px) scale(1.04);
+        }
+        #video {
+            margin: 12px 0 8px 0;
+            border-radius: 10px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+        }
+        #status {
+            margin-top: 10px;
+            min-height: 32px;
+            font-size: 1.08rem;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .input-group input {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: none;
+            margin-top: 6px;
+            font-size: 1rem;
+        }
+        #questionBox {
+            margin: 18px 0 0 0;
+            background: #1565c0;
+            border-radius: 8px;
+            padding: 12px 18px;
+            font-size: 1.08rem;
+            color: #ffe082;
+            min-height: 32px;
+            min-width: 220px;
+            text-align: center;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+        }
+        #userBox {
+            margin: 18px 0 0 0;
+            background: #00bfae;
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-size: 1.08rem;
+            color: #fff;
+            min-height: 32px;
+            min-width: 220px;
+            text-align: center;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+            display: none;
+        }
+        .liveness-list {
+            margin: 10px 0 0 0;
+            padding-left: 0;
+            list-style: none;
+        }
+        .liveness-list li {
+            margin-bottom: 4px;
+            font-size: 1.01rem;
+        }
+        .liveness-pass { color: #00e676; font-weight: bold; }
+        .liveness-fail { color: #ff5252; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="left-panel">
+            <h1>Face Recognition System</h1>
+            <div class="btn-group">
+                <button id="loginBtn">Login (Liveness)</button>
+                <button id="registerBtn">Register</button>
+                <button id="regenBtn">Regenerate Encodings</button>
+                <button id="exitBtn">Exit</button>
+            </div>
+            <div class="input-group" id="registerGroup" style="display:none;">
+                <label for="username">Enter Name:</label>
+                <input type="text" id="username" placeholder="Your Name">
+            </div>
+            <video id="video" width="320" height="240" autoplay muted></video>
+            <div id="questionBox">&nbsp;</div>
+            <div id="userBox">&nbsp;</div>
+        </div>
+        <div class="right-panel">
+            <div id="status"></div>
+        </div>
+    </div>
+    <script>
+        const video = document.getElementById('video');
+        const statusDiv = document.getElementById('status');
+        const registerGroup = document.getElementById('registerGroup');
+        const loginBtn = document.getElementById('loginBtn');
+        const registerBtn = document.getElementById('registerBtn');
+        const regenBtn = document.getElementById('regenBtn');
+        const exitBtn = document.getElementById('exitBtn');
+        const questionBox = document.getElementById('questionBox');
+        const userBox = document.getElementById('userBox');
+        let stream;
+        let capturing = false;
+        // Liveness questions (should match backend)
+        const livenessQuestions = [
+            "Blink twice quickly",
+            "Look left then right",
+            "Raise your eyebrows",
+            "Smile softly",
+            "Shake your head",
+            "Keep eyes wide open"
+        ];
+        async function startCamera() {
+            if (!stream) {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+            }
+        }
+        function captureFrames(count = livenessQuestions.length) {
+            return new Promise((resolve) => {
+                let frames = [];
+                let canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                let ctx = canvas.getContext('2d');
+                let captured = 0;
+                function snap() {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    canvas.toBlob(blob => {
+                        frames.push(blob);
+                        captured++;
+                        // Show current liveness question
+                        let qIdx = captured - 1;
+                        if (capturing && livenessQuestions[qIdx]) {
+                            questionBox.textContent = livenessQuestions[qIdx];
+                        }
+                        if (captured < count) {
+                            setTimeout(snap, 6000); // 6 seconds per challenge
+                        } else {
+                            questionBox.textContent = '';
+                            resolve(frames);
+                        }
+                    }, 'image/jpeg');
+                }
+                snap();
+            });
+        }
+        loginBtn.onclick = async () => {
+            statusDiv.textContent = 'Recognizing face...';
+            registerGroup.style.display = 'none';
+            userBox.style.display = 'none';
+            await startCamera();
+            capturing = true;
+            // Step 1: Capture a single frame for recognition
+            let singleFrame = await captureFrames(1);
+            let recogFormData = new FormData();
+            recogFormData.append('image', singleFrame[0], 'frame0.jpg');
+            // Call /recognize on webapp.py (assume port 5000)
+            let recogResponse = await fetch('http://localhost:5000/recognize', { method: 'POST', body: recogFormData });
+            let recogData = await recogResponse.json();
+            if (!recogData.success || !recogData.user) {
+                statusDiv.textContent = recogData.message || 'Face not recognized.';
+                capturing = false;
+                return;
+            }
+            // Show recognized name
+            userBox.style.display = 'block';
+            userBox.innerHTML = `<span style="font-size:1.5rem;color:#ffe082;font-weight:bold;">Recognized: ${recogData.user}</span>`;
+            statusDiv.textContent = 'Now performing liveness test...';
+            // Step 2: Capture frames for liveness
+            let frames = await captureFrames(livenessQuestions.length);
+            let formData = new FormData();
+            frames.forEach((blob, i) => formData.append('frames', blob, `frame${i}.jpg`));
+            // Call /login on webapp.py (assume port 5000)
+            fetch('http://localhost:5000/login', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        userBox.style.display = 'block';
+                        userBox.innerHTML = `<span style="font-size:1.5rem;color:#ffe082;font-weight:bold;">Welcome, ${recogData.user}! Login successful</span>`;
+                        let msg = '';
+                        if (data.liveness) {
+                            msg += '<div style="margin-top:10px;">Liveness Results:<ul class="liveness-list">';
+                            data.liveness.forEach(ch => {
+                                msg += `<li><span style='color:#ffe082;'>${ch.challenge}:</span> <span class='${ch.result==="pass"?"liveness-pass":"liveness-fail"}'>${ch.result.toUpperCase()}</span></li>`;
+                            });
+                            msg += '</ul></div>';
+                        }
+                        statusDiv.innerHTML = msg;
+                    } else {
+                        userBox.style.display = 'none';
+                        let msg = (data.message || 'Liveness failed.') + '<br/>';
+                        if (data.liveness) {
+                            msg += '<div style="margin-top:10px;">Liveness Results:<ul class="liveness-list">';
+                            data.liveness.forEach(ch => {
+                                msg += `<li><span style='color:#ffe082;'>${ch.challenge}:</span> <span class='${ch.result==="pass"?"liveness-pass":"liveness-fail"}'>${ch.result.toUpperCase()}</span></li>`;
+                            });
+                            msg += '</ul></div>';
+                        }
+                        statusDiv.innerHTML = msg;
+                    }
+                })
+                .catch(() => statusDiv.textContent = 'Error during liveness test.');
+        };
+        registerBtn.onclick = async () => {
+            registerGroup.style.display = 'block';
+            statusDiv.textContent = 'Enter your name and look at the camera.';
+            userBox.style.display = 'none';
+            await startCamera();
+            capturing = true;
+        };
+        document.getElementById('username').addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                let name = e.target.value.trim();
+                if (!name) {
+                    statusDiv.textContent = 'Please enter a name.';
+                    return;
+                }
+                statusDiv.textContent = 'Capturing images for registration...';
+                userBox.style.display = 'none';
+                let frames = await captureFrames(5); // Reduced frames
+                let formData = new FormData();
+                formData.append('name', name);
+                frames.forEach((blob, i) => formData.append('frames', blob, `frame${i}.jpg`));
+                fetch('/register', { method: 'POST', body: formData })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            statusDiv.textContent = 'Registration successful!';
+                        } else {
+                            statusDiv.textContent = data.message || 'Registration failed.';
+                        }
+                    })
+                    .catch(() => statusDiv.textContent = 'Error during registration.');
+            }
+        });
+        regenBtn.onclick = () => {
+            statusDiv.textContent = 'Regenerating encodings...';
+            userBox.style.display = 'none';
+            fetch('/regenerate', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        statusDiv.textContent = 'Encodings regenerated!';
+                    } else {
+                        statusDiv.textContent = 'Failed to regenerate encodings.';
+                    }
+                })
+                .catch(() => statusDiv.textContent = 'Error during regeneration.');
+        };
+        exitBtn.onclick = () => {
+            statusDiv.textContent = 'Goodbye!';
+            userBox.style.display = 'none';
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            capturing = false;
+        };
+    </script>
+</body>
+</html> 
